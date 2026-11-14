@@ -20,6 +20,7 @@ import com.badlogic.gdx.graphics.g3d.utils.ModelBuilder;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.math.Intersector;
 import com.badlogic.gdx.math.Matrix4;
+import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.Plane;
 import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.math.Vector3;
@@ -55,6 +56,8 @@ public class MainGame extends ApplicationAdapter {
         boolean moving;
         Res target;
         float timer;
+        boolean soldier;
+        float hp = 20f, maxHp = 20f;
         ModelInstance body, head;
     }
 
@@ -86,6 +89,11 @@ public class MainGame extends ApplicationAdapter {
     private Unit selected;
     private Mode mode = Mode.NONE;
     private boolean won = false;
+    private boolean lost = false;
+    private final Array<Unit> enemies = new Array<>();
+    private float waveTimer = 45f;
+    private int wave = 0;
+    private float centerHp = 300f;
 
     private String message = "";
     private float messageTimer = 0;
@@ -192,6 +200,27 @@ public class MainGame extends ApplicationAdapter {
         units.add(u);
     }
 
+    private void createSoldier(float x, float z) {
+        Unit u = new Unit();
+        u.x = x;
+        u.z = z;
+        u.soldier = true;
+        u.hp = u.maxHp = 60f;
+        u.body = cylinder(x, 0.65f, z, 0.75f, 1.3f, 0.75f, new Color(0.9f, 0.5f, 0.1f, 1f));
+        u.head = sphere(x, 1.55f, z, 0.65f, 0.65f, 0.65f, new Color(0.6f, 0.6f, 0.65f, 1f));
+        units.add(u);
+    }
+
+    private void createEnemy(float x, float z) {
+        Unit u = new Unit();
+        u.x = x;
+        u.z = z;
+        u.hp = u.maxHp = 30f;
+        u.body = cylinder(x, 0.65f, z, 0.75f, 1.3f, 0.75f, new Color(0.5f, 0.05f, 0.05f, 1f));
+        u.head = sphere(x, 1.55f, z, 0.65f, 0.65f, 0.65f, new Color(0.2f, 0.2f, 0.2f, 1f));
+        enemies.add(u);
+    }
+
     private void createHouse(float x, float z) {
         objects.add(box(x, 0.8f, z, 3, 1.6f, 3, new Color(0.65f, 0.48f, 0.28f, 1f)));
         objects.add(cone(x, 2, z, 3.5f, 1.5f, 3.5f, new Color(0.55f, 0.12f, 0.1f, 1f)));
@@ -290,14 +319,14 @@ public class MainGame extends ApplicationAdapter {
     }
 
     private void onTap(int sx, int sy) {
-        if (won) return;
+        if (won || lost) return;
 
         float w = Gdx.graphics.getWidth();
         float h = Gdx.graphics.getHeight();
 
         // alt menu
         if (h - sy < buttonHeight()) {
-            pressButton((int) (sx / (w / 4f)));
+            pressButton((int) (sx / (w / 5f)));
             return;
         }
 
@@ -337,7 +366,7 @@ public class MainGame extends ApplicationAdapter {
                 hitRes = r;
             }
         }
-        if (hitRes != null) {
+        if (hitRes != null && !selected.soldier) {
             sendToResource(selected, hitRes);
             return;
         }
@@ -391,6 +420,9 @@ public class MainGame extends ApplicationAdapter {
                 trainVillager();
                 break;
             case 3:
+                trainSoldier();
+                break;
+            case 4:
                 mode = Mode.NONE;
                 selected = null;
                 break;
@@ -408,6 +440,20 @@ public class MainGame extends ApplicationAdapter {
         }
         food -= 50;
         createVillager(2 + (units.size % 3), 2.5f);
+    }
+
+    private void trainSoldier() {
+        if (units.size >= popCap()) {
+            say("Nufus dolu! Ev yap.");
+            return;
+        }
+        if (food < 50 || wood < 30) {
+            say("Asker: 50 yemek + 30 odun");
+            return;
+        }
+        food -= 50;
+        wood -= 30;
+        createSoldier(-2 - (units.size % 3), 2.5f);
     }
 
     private void place(float gx, float gz) {
@@ -460,7 +506,7 @@ public class MainGame extends ApplicationAdapter {
 
     private void update(float dt) {
         if (messageTimer > 0) messageTimer -= dt;
-        if (won) return;
+        if (won || lost) return;
 
         for (Unit u : units) {
             if (u.target != null && !resources.contains(u.target, true)) {
@@ -501,6 +547,8 @@ public class MainGame extends ApplicationAdapter {
             u.head.transform.setToTranslation(u.x, 1.55f, u.z);
         }
 
+        updateCombat(dt);
+
         // tarlalar yemek uretir
         foodAcc += farms * 2f * dt;
         if (foodAcc >= 1f) {
@@ -511,6 +559,109 @@ public class MainGame extends ApplicationAdapter {
 
         if (gold >= GOLD_GOAL) {
             won = true;
+        }
+    }
+
+    private Unit nearest(Array<Unit> list, float x, float z, float range) {
+        Unit best = null;
+        float bd = range;
+        for (int i = 0; i < list.size; i++) {
+            Unit u = list.get(i);
+            float d = Vector2.dst(u.x, u.z, x, z);
+            if (d < bd) {
+                bd = d;
+                best = u;
+            }
+        }
+        return best;
+    }
+
+    private void updateCombat(float dt) {
+        waveTimer -= dt;
+        if (waveTimer <= 0) {
+            wave++;
+            waveTimer = 60f;
+            int n = 1 + wave;
+            for (int i = 0; i < n; i++) {
+                float a = MathUtils.random(0f, MathUtils.PI2);
+                createEnemy(MathUtils.cos(a) * 17f, MathUtils.sin(a) * 17f);
+            }
+            say("Dusman saldirisi! Dalga " + wave);
+        }
+
+        // askerler yakindaki dusmana saldirir
+        for (int i = 0; i < units.size; i++) {
+            Unit u = units.get(i);
+            if (!u.soldier || u.moving) continue;
+            Unit e = nearest(enemies, u.x, u.z, 8f);
+            if (e == null) continue;
+            float dx = e.x - u.x, dz = e.z - u.z;
+            float d = (float) Math.sqrt(dx * dx + dz * dz);
+            if (d > 1.6f) {
+                u.x += dx / d * SPEED * dt;
+                u.z += dz / d * SPEED * dt;
+            } else {
+                e.hp -= 12f * dt;
+            }
+            u.body.transform.setToTranslation(u.x, 0.65f, u.z);
+            u.head.transform.setToTranslation(u.x, 1.55f, u.z);
+        }
+
+        // dusmanlar en yakin birime, yoksa merkeze saldirir
+        for (int i = 0; i < enemies.size; i++) {
+            Unit e = enemies.get(i);
+            Unit t = nearest(units, e.x, e.z, 10f);
+            float tx = 0, tz = 0;
+            if (t != null) {
+                tx = t.x;
+                tz = t.z;
+            }
+            float dx = tx - e.x, dz = tz - e.z;
+            float d = (float) Math.sqrt(dx * dx + dz * dz);
+            float reach = (t != null) ? 1.5f : 3.2f;
+            if (d > reach) {
+                e.x += dx / d * 2.5f * dt;
+                e.z += dz / d * 2.5f * dt;
+            } else if (t != null) {
+                t.hp -= 6f * dt;
+            } else {
+                centerHp -= 8f * dt;
+            }
+            e.body.transform.setToTranslation(e.x, 0.65f, e.z);
+            e.head.transform.setToTranslation(e.x, 1.55f, e.z);
+        }
+
+        for (int i = enemies.size - 1; i >= 0; i--) {
+            if (enemies.get(i).hp <= 0) {
+                enemies.removeIndex(i);
+                food += 10;
+            }
+        }
+        for (int i = units.size - 1; i >= 0; i--) {
+            Unit u = units.get(i);
+            if (u.hp <= 0) {
+                if (selected == u) selected = null;
+                units.removeIndex(i);
+            }
+        }
+        if (centerHp <= 0) {
+            centerHp = 0;
+            lost = true;
+        }
+    }
+
+    private void drawBars(Array<Unit> list) {
+        float bw = 28f * density, bh = 4f * density;
+        Vector3 p = new Vector3();
+        for (int i = 0; i < list.size; i++) {
+            Unit u = list.get(i);
+            if (u.hp >= u.maxHp) continue;
+            p.set(u.x, 2.4f, u.z);
+            camera.project(p);
+            shapes.setColor(0.6f, 0.05f, 0.05f, 1f);
+            shapes.rect(p.x - bw / 2f, p.y, bw, bh);
+            shapes.setColor(0.1f, 0.8f, 0.1f, 1f);
+            shapes.rect(p.x - bw / 2f, p.y, bw * Math.max(0f, u.hp) / u.maxHp, bh);
         }
     }
 
@@ -549,6 +700,10 @@ public class MainGame extends ApplicationAdapter {
             modelBatch.render(u.body, environment);
             modelBatch.render(u.head, environment);
         }
+        for (Unit u : enemies) {
+            modelBatch.render(u.body, environment);
+            modelBatch.render(u.head, environment);
+        }
         if (selected != null) {
             ring.transform.setToTranslation(selected.x, 0.05f, selected.z);
             modelBatch.render(ring, environment);
@@ -562,7 +717,7 @@ public class MainGame extends ApplicationAdapter {
         float w = Gdx.graphics.getWidth();
         float h = Gdx.graphics.getHeight();
         float bh = buttonHeight();
-        float topH = 40f * density;
+        float topH = 14f * density + 2f * font.getLineHeight();
 
         Gdx.gl.glDisable(GL20.GL_DEPTH_TEST);
         Gdx.gl.glEnable(GL20.GL_BLEND);
@@ -573,11 +728,14 @@ public class MainGame extends ApplicationAdapter {
         shapes.setColor(0.1f, 0.1f, 0.1f, 0.85f);
         shapes.rect(0, h - topH, w, topH);
 
-        for (int i = 0; i < 4; i++) {
+        drawBars(units);
+        drawBars(enemies);
+
+        for (int i = 0; i < 5; i++) {
             boolean active = (i == 0 && mode == Mode.HOUSE) || (i == 1 && mode == Mode.FARM);
             if (active) shapes.setColor(0.75f, 0.55f, 0.1f, 1f);
             else shapes.setColor(0.2f, 0.2f, 0.25f, 0.95f);
-            shapes.rect(i * w / 4f + 3, 3, w / 4f - 6, bh - 6);
+            shapes.rect(i * w / 5f + 3, 3, w / 5f - 6, bh - 6);
         }
         shapes.end();
 
@@ -590,9 +748,13 @@ public class MainGame extends ApplicationAdapter {
                 + "  Tas:" + stone + "  Nufus:" + units.size + "/" + popCap(),
             12 * density, h - 10 * density);
 
-        String[] labels = {"Ev (60O 20T)", "Tarla (80O)", "Koylu (50Y)", "Iptal"};
-        for (int i = 0; i < 4; i++) {
-            font.draw(uiBatch, labels[i], i * w / 4f + 12 * density, bh / 2f + 8 * density);
+        font.draw(uiBatch,
+            "Dalga:" + wave + "  Sonraki saldiri:" + (int) Math.max(0f, waveTimer) + "s  Merkez:" + (int) centerHp,
+            12 * density, h - 10 * density - font.getLineHeight() - 4 * density);
+
+        String[] labels = {"Ev (60O 20T)", "Tarla (80O)", "Koylu (50Y)", "Asker (50Y 30O)", "Iptal"};
+        for (int i = 0; i < 5; i++) {
+            font.draw(uiBatch, labels[i], i * w / 5f + 12 * density, bh / 2f + 8 * density);
         }
 
         if (messageTimer > 0) {
@@ -604,6 +766,12 @@ public class MainGame extends ApplicationAdapter {
             font.setColor(Color.YELLOW);
             font.draw(uiBatch, "ZAFER! Krallik altinlara bogundu!",
                 w / 2f - 160 * density, h / 2f);
+        }
+
+        if (lost) {
+            font.setColor(1f, 0.3f, 0.3f, 1f);
+            font.draw(uiBatch, "YENILDIN! Merkez yikildi.",
+                w / 2f - 130 * density, h / 2f);
         }
 
         uiBatch.end();
